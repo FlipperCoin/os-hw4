@@ -21,7 +21,7 @@ IMPORTANT_NOTE: I HOLD NO responsability for these tests no to their results, th
 
  */
 
-#include "../malloc_2.cpp"
+#include "../malloc_3.cpp"
 #include <unistd.h>
 #include <assert.h>
 #include <cstdlib>
