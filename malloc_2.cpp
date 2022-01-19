@@ -4,9 +4,12 @@
 struct MallocMetadata {
     size_t size;
     bool is_free;
+    MallocMetadata* next;
+    MallocMetadata* prev;
 };
 
-void* begin = sbrk(0);
+MallocMetadata* begin = NULL;
+MallocMetadata* end = NULL;
 
 MallocMetadata* _get_block(void* p) {
     return (MallocMetadata*)((char*)p-sizeof(MallocMetadata));
@@ -28,25 +31,36 @@ void* smalloc(size_t size) {
         return NULL;
     }
 
-    void* end = sbrk(0);
-    void* ptr = begin;
-    while (ptr != NULL && ptr != end) {
-        MallocMetadata* meta = (MallocMetadata*)ptr;
-        if (meta->is_free && meta->size >= size) {
-            meta->is_free = false;
+    MallocMetadata* ptr = begin;
+    while (ptr != NULL) {
+        if (ptr->is_free && ptr->size >= size) {
+            ptr->is_free = false;
             return (char*)ptr+sizeof(MallocMetadata);
         }
 
-        ptr = (char*)ptr + (sizeof(MallocMetadata) + meta->size);
+        ptr = ptr->next;
     }
 
-    if ((void*)-1 == sbrk(sizeof(MallocMetadata) + size)) {
+    MallocMetadata* new_end = (MallocMetadata*)sbrk(sizeof(MallocMetadata) + size);
+    if ((MallocMetadata*)-1 == new_end) {
         return NULL;
     }
 
-    ((MallocMetadata*)end)->size = size;
-    ((MallocMetadata*)end)->is_free = false;
-    // *(MallocMetadata*)end = {.size = size, .is_free = false};
+    new_end->prev = NULL;
+    new_end->next = NULL;
+    new_end->size = size;
+    new_end->is_free = false;
+
+    if (begin == NULL) {
+        begin = new_end;
+    }
+
+    if (end != NULL) {
+        end->next = new_end;
+        new_end->prev = end;
+    }
+    
+    end = new_end;
     return (char*)end + sizeof(MallocMetadata);
 }
 
@@ -69,6 +83,8 @@ void sfree(void* p) {
     
     MallocMetadata* block = _get_block(p);
     block->is_free = true;
+    // if (block->prev != NULL) block->prev->next = block->next;
+    // if (block->next != NULL) block->next->prev = block->prev;
     return;
 }
 
@@ -100,9 +116,8 @@ void* srealloc(void* oldp, size_t size) {
 size_t _num_free_blocks() {
     size_t count = 0;
     
-    void* end = sbrk(0);
-    for (void* p = begin; p != end; p = ((char*)p + sizeof(MallocMetadata) + ((MallocMetadata*)p)->size)) {
-        if (((MallocMetadata*)p)->is_free) count++;
+    for (MallocMetadata* p = begin; p != NULL; p = p->next) {
+        if (p->is_free) count++;
     }
 
     return count;
@@ -111,9 +126,8 @@ size_t _num_free_blocks() {
 size_t _num_free_bytes() {
     size_t count = 0;
     
-    void* end = sbrk(0);
-    for (void* p = begin; p != end; p = ((char*)p + sizeof(MallocMetadata) + ((MallocMetadata*)p)->size)) {
-        if (((MallocMetadata*)p)->is_free) count += ((MallocMetadata*)p)->size;
+    for (MallocMetadata* p = begin; p != NULL; p = p->next) {
+        if (p->is_free) count += p->size;
     }
 
     return count;
@@ -122,8 +136,7 @@ size_t _num_free_bytes() {
 size_t _num_allocated_blocks() {
     size_t count = 0;
     
-    void* end = sbrk(0);
-    for (void* p = begin; p != end; p = ((char*)p + sizeof(MallocMetadata) + ((MallocMetadata*)p)->size)) {
+    for (MallocMetadata* p = begin; p != NULL; p = p->next) {
         count++;
     }
 
@@ -133,9 +146,8 @@ size_t _num_allocated_blocks() {
 size_t _num_allocated_bytes() {
     size_t count = 0;
     
-    void* end = sbrk(0);
-    for (void* p = begin; p != end; p = ((char*)p + sizeof(MallocMetadata) + ((MallocMetadata*)p)->size)) {
-        count += ((MallocMetadata*)p)->size;
+    for (MallocMetadata* p = begin; p != NULL; p = p->next) {
+        count += p->size;
     }
 
     return count;
@@ -145,8 +157,7 @@ size_t _num_allocated_bytes() {
 size_t _num_meta_data_bytes() {
     size_t count = 0;
     
-    void* end = sbrk(0);
-    for (void* p = begin; p != end; p = ((char*)p + sizeof(MallocMetadata) + ((MallocMetadata*)p)->size)) {
+    for (MallocMetadata* p = begin; p != NULL; p = p->next) {
         count += sizeof(MallocMetadata);
     }
 
