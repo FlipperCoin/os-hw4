@@ -37,7 +37,7 @@ void printMemory(void *start, bool onlyList) {
 		}
 		size += current->size;
 		blocks++;
-		current = current->next;
+		current = current->next_heap;
 	}
 	std::cout << "|";
 	if (!onlyList) {
@@ -67,7 +67,7 @@ void updateStats(void *start, stats &current_stats, size_t bytes_mmap, int block
 			current_stats.num_free_blocks++;
 			current_stats.num_free_bytes += current->size;
 		}
-		current = current->next;
+		current = current->next_heap;
 	}
 	current_stats.num_meta_data_bytes += sizeof(T) * blocks_mmap;
 	current_stats.num_allocated_bytes += bytes_mmap;
