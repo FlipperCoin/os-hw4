@@ -6,3 +6,4 @@ malloc_3
 main
 test_m2
 test_malloc_2
+build/

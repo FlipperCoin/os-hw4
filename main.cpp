@@ -13,7 +13,8 @@ int main() {
     // void* ptr3 = smalloc(8);
     // printf("ptr3: %p, sbrk: %p\n", ptr3, sbrk(0));
 
-    void* ptr1 = smalloc(10);
+    void* ptr1 = smalloc(128*1024+2);
+
     void* ptr2 = scalloc(3,10);
     void* ptr3 = srealloc(NULL, 50);
     printf("ptr1: %p, size: %lu\n", ptr1, _get_block(ptr1)->size);

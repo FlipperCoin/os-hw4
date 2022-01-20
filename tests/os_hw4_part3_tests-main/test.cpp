@@ -21,10 +21,11 @@
 // don't change anything from the one in malloc_3.c !!not even the order of args!!!
 typedef struct MallocMetadata3 {
 	size_t size;
-	bool is_free;
-	bool on_heap;
-	MallocMetadata3 *next;
-	MallocMetadata3 *prev;
+    bool is_free;
+    MallocMetadata3* next;
+    MallocMetadata3* prev;
+    MallocMetadata3* next_heap;
+    MallocMetadata3* prev_heap;
 } Metadata3;
 
 
@@ -961,7 +962,7 @@ int main() {
 	printStartRunningTests();
 
 	auto t1 = high_resolution_clock::now();
-
+	checkFunc(functions[1], allocations, function_names[1]);
 	for (int i = 0 ; i < NUM_FUNC ; ++i) {
 		pid_t pid = fork();
 		if (pid == 0) {
