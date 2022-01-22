@@ -24,8 +24,8 @@ typedef struct MallocMetadata3 {
     bool is_free;
     MallocMetadata3* next;
     MallocMetadata3* prev;
-    MallocMetadata3* next_heap;
-    MallocMetadata3* prev_heap;
+    MallocMetadata3* snext;
+    MallocMetadata3* sprev;
 } Metadata3;
 
 
@@ -964,7 +964,7 @@ int main() {
 	printStartRunningTests();
 
 	auto t1 = high_resolution_clock::now();
-	//checkFunc(functions[8], allocations, function_names[8]);
+
 	for (int i = 0 ; i < NUM_FUNC ; ++i) {
 		pid_t pid = fork();
 		if (pid == 0) {

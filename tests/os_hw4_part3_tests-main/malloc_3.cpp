@@ -261,19 +261,21 @@ void* smalloc(size_t size) {
         return ((char*)mmap_block + sizeof(MallocMetadata));
     }
     
-    MallocMetadata* ptr = bins[bin];
-    while (ptr != NULL) {
-        if (ptr->size >= size) {
-            ptr = _remove_free(ptr);
-            if (ptr->size > (size + sizeof(MallocMetadata)) && (ptr->size - (size + sizeof(MallocMetadata))) >= 128) {
-                MallocMetadata* new_free = _divide_block(ptr, size);
-                _insert_free(new_free);
+    for (int i = bin; i < 128; i++) {
+        MallocMetadata* ptr = bins[i];
+        while (ptr != NULL) {
+            if (ptr->size >= size) {
+                ptr = _remove_free(ptr);
+                if (ptr->size > (size + sizeof(MallocMetadata)) && (ptr->size - (size + sizeof(MallocMetadata))) >= 128) {
+                    MallocMetadata* new_free = _divide_block(ptr, size);
+                    _insert_free(new_free);
+                }
+                _insert_allocated(ptr);
+                return (char*)ptr+sizeof(MallocMetadata);
             }
-            _insert_allocated(ptr);
-            return (char*)ptr+sizeof(MallocMetadata);
-        }
 
-        ptr = ptr->next;
+            ptr = ptr->next;
+        }
     }
 
     MallocMetadata* new_end;
@@ -380,10 +382,12 @@ void* srealloc(void* oldp, size_t size) {
             if (new_block->size > (size + sizeof(MallocMetadata)) && new_block->size - (size + sizeof(MallocMetadata)) >= 128)
             {
                 MallocMetadata* new_free = _divide_block(new_block, size);
+                _insert_allocated(new_block);
                 _insert_free(new_free);
             }
-            
-            _insert_allocated(new_block);
+            else {
+                _insert_allocated(new_block);
+            }
 
             return newp;
         }
