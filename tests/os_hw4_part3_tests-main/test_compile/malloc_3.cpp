@@ -357,10 +357,6 @@ void* srealloc(void* oldp, size_t size) {
     size_t orig_size = block->size;
 
     if (block->size/1024 > 127) {
-        if (orig_size == size) {
-            return oldp;
-        }
-
         void* newp = smalloc(size);
         if (NULL == newp) {
             return NULL;
