@@ -52,6 +52,8 @@ MallocMetadata* _remove_free(MallocMetadata* ptr) {
     } 
     
     ptr->is_free = false;
+    ptr->next = NULL;
+    ptr->prev = NULL;
     return ptr;
 }
 

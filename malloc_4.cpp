@@ -3,6 +3,7 @@
 #include <sys/mman.h>
 
 #define BINS_SIZE 128
+#define SIZE_OF_META ((sizeof(MallocMetadata) % 8 == 0) ? sizeof(MallocMetadata) : (sizeof(MallocMetadata) + (8 - sizeof(MallocMetadata)%8 )))
 
 struct MallocMetadata {
     size_t size;
@@ -12,6 +13,7 @@ struct MallocMetadata {
     MallocMetadata* next_heap;
     MallocMetadata* prev_heap;
 };
+
 
 MallocMetadata* bins[BINS_SIZE];
 
@@ -25,7 +27,7 @@ MallocMetadata* mmap_begin = NULL;
 MallocMetadata* mmap_end = NULL;
 
 MallocMetadata* _get_block(void* p) {
-    return (MallocMetadata*)((char*)p-sizeof(MallocMetadata));
+    return (MallocMetadata*)((char*)p-SIZE_OF_META);
 }
 
 void* smalloc(size_t size);
@@ -38,6 +40,10 @@ size_t _num_allocated_blocks();
 size_t _num_allocated_bytes();
 size_t _num_meta_data_bytes();
 size_t _size_meta_data();
+
+size_t _align(size_t num) {
+    return ((num % 8) == 0) ? num : (num + (8 - (num%8) ));
+}
 
 MallocMetadata* _remove_free(MallocMetadata* ptr) {
     MallocMetadata **bin_head = &bins[ptr->size / 1024];
@@ -64,21 +70,21 @@ MallocMetadata* _combine(MallocMetadata* block) {
     if(prev_heap != NULL && prev_heap->is_free && next_heap != NULL && next_heap->is_free) {
         _remove_free(next_heap);
         _remove_free(prev_heap);
-        prev_heap->size = prev_heap->size + block->size + next_heap->size + 2*sizeof(MallocMetadata);
+        prev_heap->size = prev_heap->size + block->size + next_heap->size + 2*SIZE_OF_META;
         prev_heap->next_heap = next_heap->next_heap;
         if (next_heap->next_heap != NULL) next_heap->next_heap->prev_heap = prev_heap;
         block = prev_heap;
     }
     else if (prev_heap != NULL && prev_heap->is_free) {
         _remove_free(prev_heap);
-        prev_heap->size = prev_heap->size + block->size + sizeof(MallocMetadata);
+        prev_heap->size = prev_heap->size + block->size + SIZE_OF_META;
         prev_heap->next_heap = block->next_heap;
         if(block->next_heap != NULL) block->next_heap->prev_heap = prev_heap;
         block = prev_heap;
     }
     else if (next_heap != NULL && next_heap->is_free) {
         _remove_free(next_heap);
-        block->size = block->size + next_heap->size + sizeof(MallocMetadata);
+        block->size = block->size + next_heap->size + SIZE_OF_META;
         block->next_heap = next_heap->next_heap;
         if (next_heap->next_heap != NULL) next_heap->next_heap->prev_heap = block;
     }
@@ -91,19 +97,20 @@ MallocMetadata* _combine_realloc(MallocMetadata* block, size_t wanted_size) {
     MallocMetadata* prev_heap = block->prev_heap;
     MallocMetadata* next_heap = block->next_heap;
     
-    if (prev_heap != NULL && prev_heap->is_free 
-        && sizeof(MallocMetadata) + prev_heap->size + block->size >= wanted_size) {
+    //Combine with Prev in heap
+    if (prev_heap != NULL && prev_heap->is_free && prev_heap->size + block->size + SIZE_OF_META >= wanted_size) {
         _remove_free(prev_heap);
-        prev_heap->size = prev_heap->size + block->size + sizeof(MallocMetadata);
+        prev_heap->size = prev_heap->size + block->size + SIZE_OF_META;
         prev_heap->next_heap = block->next_heap;
         if(block->next_heap != NULL) block->next_heap->prev_heap = prev_heap;
         block = prev_heap;
     }
+    // Check if wilderness
     else if(next_heap == NULL)
     {
         if (prev_heap != NULL && prev_heap->is_free) {
             if ((void*)-1 == 
-                sbrk(wanted_size + sizeof(MallocMetadata) - block->size - prev_heap->size - (2*sizeof(MallocMetadata))))
+                sbrk(wanted_size + SIZE_OF_META - block->size - prev_heap->size - (2*SIZE_OF_META)))
             {
                 return NULL;
             }
@@ -121,17 +128,19 @@ MallocMetadata* _combine_realloc(MallocMetadata* block, size_t wanted_size) {
             block->size = wanted_size;
         }
     }
-    else if (next_heap != NULL && next_heap->is_free && next_heap->size + sizeof(MallocMetadata) + block->size >= wanted_size) {
+    // Combine with Next in heap
+    else if (next_heap != NULL && next_heap->is_free && next_heap->size + SIZE_OF_META + block->size >= wanted_size) {
         _remove_free(next_heap);
-        block->size = block->size + next_heap->size + sizeof(MallocMetadata);
+        block->size = block->size + next_heap->size + SIZE_OF_META;
         block->next_heap = next_heap->next_heap;
         if (next_heap->next_heap != NULL) next_heap->next_heap->prev_heap = block;
     }
+    // Combine with both
     else if(prev_heap != NULL && prev_heap->is_free && next_heap != NULL && next_heap->is_free 
-                && prev_heap->size + next_heap->size + block->size + (2*sizeof(MallocMetadata)) >= wanted_size) {
+                && prev_heap->size + next_heap->size + block->size + (2 * SIZE_OF_META) >= wanted_size) {
         _remove_free(next_heap);
         _remove_free(prev_heap);
-        prev_heap->size = prev_heap->size + block->size + next_heap->size + 2*sizeof(MallocMetadata);
+        prev_heap->size = prev_heap->size + block->size + next_heap->size + 2*SIZE_OF_META;
         prev_heap->next_heap = next_heap->next_heap;
         if (next_heap->next_heap != NULL) next_heap->next_heap->prev_heap = prev_heap;
         block = prev_heap;
@@ -144,8 +153,8 @@ MallocMetadata* _combine_realloc(MallocMetadata* block, size_t wanted_size) {
 MallocMetadata* _divide_block(MallocMetadata* block, size_t size) {
     size_t orig_size = block->size;
     block->size = size;
-    MallocMetadata* new_free = (MallocMetadata*)((char*)block + size + sizeof(MallocMetadata));
-    new_free->size = orig_size - size - sizeof(MallocMetadata);
+    MallocMetadata* new_free = (MallocMetadata*)((char*)block + size + SIZE_OF_META);
+    new_free->size = orig_size - size - SIZE_OF_META;
     if(block->next_heap) 
         block->next_heap->prev_heap = new_free;
     new_free->next_heap = block->next_heap;
@@ -237,9 +246,12 @@ void* smalloc(size_t size) {
         return NULL;
     }
 
+    // align size
+    size = _align(size);
+
     size_t bin = size / 1024;
     if (bin > 127) {
-        void* p = mmap(NULL,size + sizeof(MallocMetadata), PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+        void* p = mmap(NULL,size + SIZE_OF_META, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
         if ((void*)-1 == p) {
             return NULL;
         }
@@ -261,20 +273,22 @@ void* smalloc(size_t size) {
             mmap_begin = mmap_block;
         }
         
-        return ((char*)mmap_block + sizeof(MallocMetadata));
+        return ((char*)mmap_block + SIZE_OF_META);
     }
     
+    //Search for free block in all the bins.(starting from the right bin)
     for (int i = bin; i < 128; i++) {
         MallocMetadata* ptr = bins[i];
         while (ptr != NULL) {
             if (ptr->size >= size) {
                 ptr = _remove_free(ptr);
-                if (ptr->size > (size + sizeof(MallocMetadata)) && (ptr->size - (size + sizeof(MallocMetadata))) >= 128) {
+                // is free block large enough to divide
+                if (ptr->size > (size + SIZE_OF_META) && (ptr->size - (size + SIZE_OF_META)) >= 128) {
                     MallocMetadata* new_free = _divide_block(ptr, size);
                     _insert_free(new_free);
                 }
                 _insert_allocated(ptr);
-                return (char*)ptr+sizeof(MallocMetadata);
+                return (char*)ptr + SIZE_OF_META;
             }
 
             ptr = ptr->next;
@@ -283,8 +297,9 @@ void* smalloc(size_t size) {
 
     MallocMetadata* new_end;
 
+    // wilderness
     if (heap_end != NULL && heap_end->is_free) {
-        new_end = (MallocMetadata*)sbrk(sizeof(MallocMetadata) + size - heap_end->size);
+        new_end = (MallocMetadata*)sbrk(SIZE_OF_META + size - heap_end->size);
         if ((MallocMetadata*)-1 == new_end) {
             return NULL;
         }
@@ -292,10 +307,19 @@ void* smalloc(size_t size) {
         _remove_free(heap_end);
         heap_end->size = size;
         _insert_allocated(heap_end);
-        return (char*)heap_end + sizeof(MallocMetadata);
+        return (char*)heap_end + SIZE_OF_META;
     }
 
-    new_end = (MallocMetadata*)sbrk(sizeof(MallocMetadata) + size);
+    // need alignment of first address
+    if (heap_end == NULL) {
+        intptr_t start_of_heap_addr = (intptr_t)sbrk(0);
+        if(start_of_heap_addr % 8 != 0)
+        {
+            sbrk(8 - (start_of_heap_addr % 8));
+        }
+    }
+
+    new_end = (MallocMetadata*)sbrk(SIZE_OF_META + size);
     if ((MallocMetadata*)-1 == new_end) {
         return NULL;
     }
@@ -311,7 +335,7 @@ void* smalloc(size_t size) {
         heap_begin = new_end;
     heap_end = new_end;
     _insert_allocated(new_end);
-    return (char*)new_end + sizeof(MallocMetadata);
+    return (char*)new_end + SIZE_OF_META;
 }
 
 void* scalloc(size_t num, size_t size) {
@@ -338,7 +362,7 @@ void sfree(void* p) {
         if (block->prev != NULL) block->prev->next = block->next;
         if (block->next != NULL) block->next->prev = block->prev;
         
-        munmap(block,block->size + sizeof(MallocMetadata));
+        munmap(block,block->size + SIZE_OF_META);
         return;
     }
     _remove_allocated(block);
@@ -358,6 +382,7 @@ void* srealloc(void* oldp, size_t size) {
 
     MallocMetadata* block = _get_block(oldp);
     size_t orig_size = block->size;
+    size = _align(size);
 
     if (block->size/1024 > 127) {
         if (orig_size == size) {
@@ -374,6 +399,7 @@ void* srealloc(void* oldp, size_t size) {
         return newp;
     }
 
+    // if need to enlarge block
     if (block->size < size) 
     {
         MallocMetadata* new_block = _combine_realloc(block,size);
@@ -382,11 +408,12 @@ void* srealloc(void* oldp, size_t size) {
         {
             _remove_allocated(block);
             
-            void* newp = (char*)new_block + sizeof(MallocMetadata);
+            void* newp = (char*)new_block + SIZE_OF_META;
 
             memmove(newp, oldp, orig_size > size ? size : orig_size);
-
-            if (new_block->size > (size + sizeof(MallocMetadata)) && new_block->size - (size + sizeof(MallocMetadata)) >= 128)
+            
+            // check if dividable
+            if (new_block->size > (size + SIZE_OF_META) && new_block->size - (size + SIZE_OF_META) >= 128)
             {
                 MallocMetadata* new_free = _divide_block(new_block, size);
                 _insert_allocated(new_block);
@@ -410,7 +437,9 @@ void* srealloc(void* oldp, size_t size) {
             return newp;
         }
     }
-    else if (block->size > (size + sizeof(MallocMetadata)) && block->size - (size + sizeof(MallocMetadata)) >= 128)
+    // block big enough for new size.
+    // can still use this block for realloc and divide it.
+    else if (block->size > (size + SIZE_OF_META) && block->size - (size + SIZE_OF_META) >= 128)
     {
         MallocMetadata* new_free = _divide_block(block, size);
         _insert_free(new_free);
@@ -478,11 +507,11 @@ size_t _num_allocated_bytes() {
 
 
 size_t _num_meta_data_bytes() {   
-    size_t count = (_num_allocated_blocks() * sizeof(MallocMetadata));
+    size_t count = (_num_allocated_blocks() * SIZE_OF_META);
 
     return count;
 }
 
 size_t _size_meta_data() {
-    return sizeof(MallocMetadata);
+    return SIZE_OF_META;
 }
