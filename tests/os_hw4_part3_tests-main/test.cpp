@@ -964,7 +964,7 @@ int main() {
 	printStartRunningTests();
 
 	auto t1 = high_resolution_clock::now();
-	//checkFunc(functions[8], allocations, function_names[8]);
+	//checkFunc(functions[3], allocations, function_names[3]);
 	for (int i = 0 ; i < NUM_FUNC ; ++i) {
 		pid_t pid = fork();
 		if (pid == 0) {
